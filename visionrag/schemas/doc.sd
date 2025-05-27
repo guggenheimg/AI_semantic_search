@@ -1,0 +1,68 @@
+schema doc {
+    document doc {
+        field url type string {
+            indexing: summary
+        }
+        field title type string {
+            indexing: summary | index
+            index: enable-bm25
+        }
+        field texts type array<string> {
+            indexing: index
+            index: enable-bm25
+        }
+        field images type array<string> {
+            indexing: summary
+        }
+        field colbert type tensor<int8>(page{}, patch{}, v[16]) {
+            indexing: attribute
+        }
+    }
+    fieldset default {
+        fields: title, texts
+    }
+    rank-profile default {
+        inputs {
+            query(qt) tensor<float>(querytoken{}, v[128])         }
+        function max_sim_per_page() {
+            expression {
+                
+                                sum(
+                                    reduce(
+                                        sum(
+                                            query(qt) * unpack_bits(attribute(colbert)) , v
+                                        ),
+                                        max, patch
+                                    ),
+                                    querytoken
+                                )
+                            
+            }
+        }
+        function max_sim() {
+            expression {
+                reduce(max_sim_per_page, max, page)
+            }
+        }
+        function bm25_score() {
+            expression {
+                bm25(title) + bm25(texts)
+            }
+        }
+        first-phase {
+            expression {
+                bm25_score
+            }
+        }
+        second-phase {
+            expression {
+                max_sim
+            }
+            rerank-count: 10
+        }
+        match-features {
+            max_sim_per_page
+            bm25_score
+        }
+    }
+}
